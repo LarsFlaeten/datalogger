@@ -15,7 +15,6 @@ Datalogger::Datalogger(const std::string& blackbox)
 
 Datalogger::~Datalogger()
 {
-    std::cout << "Closing blackbox" << std::endl;
     _blackbox.close();
 }
 
@@ -44,8 +43,12 @@ void Datalogger::init(const std::string& blackbox)
     _hasStarted = false;
     _step = 0;
 
-    std::cout << "Opening blackbox \"" << blackbox << "\" for binary writing" << std::endl;
+
     _blackbox.open(blackbox, std::fstream::out | std::fstream::binary);
+    // check that he file opened ok:
+    if(!_blackbox.is_open())
+        throw std::runtime_error("File could not be opened, use dby other process?");
+
 
     registerValueName("TIME", "t", "DOUBLE");
 }
@@ -75,6 +78,10 @@ void Datalogger::registerValueName(const std::string& cl, const std::string& val
         oss << "Type \"" << type << "\" is not allowed" << std::endl;
         throw std::runtime_error(oss.str());
     }
+
+    if(_registeredClasses.size() > 255)
+        throw std::runtime_error("Reached max allowable classes (256)");
+
     int cli = findClassIndex(cl);
 
     if(cli == -1) {
@@ -87,6 +94,8 @@ void Datalogger::registerValueName(const std::string& cl, const std::string& val
         _registeredTypes.push_back(t);
     } else
     {
+        if(_registeredValueNames[cli].size() > 255)
+                    throw std::runtime_error("Reached max allowable values (256)");
         // Check for duplicate:
         if(findValueIndex(cli, valuename) != -1)
             throw std::runtime_error("Valuename allready exists in class");
@@ -101,6 +110,12 @@ void Datalogger::tick(double t)
 {
     ++_step;
 
+	if(!_hasStarted)
+    {
+        writeHeader();
+        _hasStarted = true;
+    }
+
     // First entry fir this step:
     writeValue("TIME", "t", t);
 }
@@ -109,8 +124,31 @@ void Datalogger::writeValue(const std::string& cl, const std::string& valuename,
 {
     if(!_hasStarted)
     {
-        writeHeader();
-        _hasStarted = true;
+        throw std::runtime_error("Need to start with a tick");
+    }
+
+    // Make sure it is allready there
+    if(_classToIndex.find(cl) == _classToIndex.end())
+    {
+        throw std::runtime_error("Tried to write unregistered class");
+    }
+    
+    // Look up class index:
+    int cli = _classToIndex[cl];
+
+    // Make sure the value is there:
+    if(_valueToIndex[cli].find(valuename) == _valueToIndex[cli].end())
+    {
+        throw std::runtime_error("Tried to write unregistered value");
+    }
+
+    // look up value index:
+    int vli = _valueToIndex[cli][valuename];
+
+    // Check type
+    if(_registeredTypes[cli][vli].compare("INT") != 0)
+    {       
+        throw std::runtime_error("Tried to write wrong type");
     }
 
 }
@@ -120,10 +158,33 @@ void Datalogger::writeValue(const std::string& cl, const std::string& valuename,
 
     if(!_hasStarted)
     {
-        writeHeader();
-        _hasStarted = true;
+		throw std::runtime_error("Need to start with a tick");
+
     }
 
+    // Make sure it is allready there
+    if(_classToIndex.find(cl) == _classToIndex.end())
+    {   
+        throw std::runtime_error("Tried to write to unregistered class");
+    }
+
+    // Look up class index:
+    int cli = _classToIndex[cl];
+
+    // Make sure the value is there:
+    if(_valueToIndex[cli].find(valuename) == _valueToIndex[cli].end())
+    {
+        throw std::runtime_error("Tried to write to unregistered value");
+    }
+
+    // look up value index:
+    int vli = _valueToIndex[cli][valuename];
+
+    // Check type
+	if(_registeredTypes[cli][vli].compare("DOUBLE") != 0)
+    {
+        throw std::runtime_error("Tried to write wrong type");
+    }
 }
             
 void Datalogger::writeHeader()
@@ -131,7 +192,88 @@ void Datalogger::writeHeader()
     if(!_blackbox.is_open())
         throw std::runtime_error("Tried to write to file, but file was closed");
 
+    // We now generate the map of indices, 
+    // since the loggin is officially starting
+    if(_hasStarted)
+        throw std::runtime_error("Logic error, never should write header on started file");
+
+    for(unsigned int i = 0; i < _registeredClasses.size(); ++i)
+    {
+		_classToIndex[_registeredClasses[i]] = i;
+
+		std::map<std::string, unsigned int> vmap;
+		unsigned int vsize = _registeredValueNames[i].size();
+		for(unsigned int j = 0; j < vsize; ++j)
+    	{
+            vmap[_registeredValueNames[i][j]] = j;
+        }
+        _valueToIndex.push_back(vmap);
+    }
+
+
+    // Start writing the file:
+    writeInt(1024); // Magic number
+    writeInt(0);    // reserved
+    writeInt(0);    // reserved
+
+    // Class index:
+    // Size:
+    unsigned int s = _registeredClasses.size();
+    writeInt(s);
+    for(unsigned int i = 0; i < s; ++i)
+    {
+        writeInt(i); // Class index
+        writeInt(_registeredClasses[i].length()); // Lenght of name
+        writeString(_registeredClasses[i]); // Name     
+    }
+
+    // Value Name indices
+    s = _registeredValueNames.size();
+	if(s != _registeredTypes.size())
+		throw std::runtime_error("Names and types size mismatch");
+
+    for(unsigned int i = 0; i < s; ++i)
+    {
+        writeInt(i); // Class index
+        unsigned int vsize = _registeredValueNames[i].size();
+        writeInt(vsize); // number of values
+		if(vsize != _registeredTypes[i].size())
+			throw std::runtime_error("Names and types size mismatch");        
+        for(unsigned int j = 0; j < vsize; ++j)
+    	{
+			writeInt(j); // value index
+			writeInt(_registeredValueNames[i][j].length()); // length of name
+			writeString(_registeredValueNames[i][j]); // Name
+			writeInt(_registeredTypes[i][j].length()); // length of name
+            writeString(_registeredTypes[i][j]); // Name
+
+		}
+    }
+
+
+
+
+
+
     
+}
+
+void Datalogger::dumpRegister()
+{
+    for(unsigned int i = 0; i < _registeredClasses.size(); ++i)
+    {
+        std::cout << i << ": " << _registeredClasses[i] << std::endl;
+
+        unsigned int vsize = _registeredValueNames[i].size();
+        for(unsigned int j = 0; j < vsize; ++j)
+        {
+            std::cout << "    " << j << ": " << _registeredValueNames[i][j] << std::endl;
+        }
+        
+    }
+
+
+
 }
 
 int Datalogger::findClassIndex(const std::string& cl)
@@ -160,6 +302,24 @@ int Datalogger::findValueIndex(unsigned int cli, const std::string& valueName)
 	return -1;
 }
 
+void    Datalogger::writeInt(int val)
+{
+	_blackbox.write((const char*)&val, sizeof(int));
+}
+
+void    Datalogger::writeChar(char val)
+{
+	_blackbox.write((const char*)&val, sizeof(char));
+}
+
+void    Datalogger::writeDouble(double val)
+{
+	_blackbox.write((const char*)&val, sizeof(double));
+}
+void    Datalogger::writeString(const std::string& val)
+{
+	_blackbox.write(val.c_str(), val.length());
+}
 
 
 

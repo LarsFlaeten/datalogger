@@ -57,8 +57,14 @@ public:
 //protected:
     
     Datalogger();
-    
+private:    
 	void	writeHeader();
+    void    writeInt(int val);
+    void    writeChar(char val);
+    void    writeDouble(double val);
+    void    writeString(const std::string& val);
+    
+public:
     void init(const std::string& blackbox);
 
     // Locates a class index, registeredClasses is the class index list
@@ -71,6 +77,8 @@ public:
 
     // Checks the type string to see if value is allowed:
     bool isAllowedType(const std::string& type);
+
+    void    dumpRegister();
 private:
     std::fstream    _blackbox;  // The blackbox file we are writing to
     unsigned int    _step;

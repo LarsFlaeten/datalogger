@@ -23,3 +23,5 @@ add_definitions("-fPIC")
 
 # Sub dirs
 add_subdirectory(src)
+
+add_subdirectory(test)
