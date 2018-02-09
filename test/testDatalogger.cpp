@@ -41,8 +41,8 @@ DataloggerTest::DataloggerTest()
 {
     dl1 = make_shared<Datalogger>("blackbox1.dat");
     dl2 = make_shared<Datalogger>("blackbox2.dat");
-    dl3 = make_shared<Datalogger>("blackbox3.dat");
-    dl4 = make_shared<Datalogger>("blackbox4.dat");
+    dl3 = make_shared<Datalogger>("blackbox3.dat", 0.1);
+    dl4 = make_shared<Datalogger>("blackbox4.dat", 0.2);
         
 }
 
@@ -69,7 +69,14 @@ void DataloggerTest::TearDown()
 
 
 TEST_F(DataloggerTest, InitializationTest) {
-	dl1 = make_shared<Datalogger>("blackbox.dat");
+	dl1 = make_shared<Datalogger>("blackbox1.dat");
+
+	// Check negative frequencies
+	ASSERT_THROW(dl2 = make_shared<Datalogger>("blackbox2.dat", -1000.0), std::runtime_error);
+
+	double fr = 0.1;
+	ASSERT_NO_THROW(dl3 = make_shared<Datalogger>("blackbox3.dat", fr));
+	ASSERT_EQ(dl3->getFrequency(), fr);
 }
 
 // Test did not go as planned.. Two instances can easilly open the same file fro writing
@@ -144,9 +151,24 @@ TEST_F(DataloggerTest, NoWriteBeforeFirstTick)
 TEST_F(DataloggerTest, TryTick) {
     ASSERT_NO_THROW(dl1->tick(1.0));
 
-    for(double t = 0.0; t <= 100; t += 0.1)
-        ASSERT_NO_THROW(dl2->tick(t));
+    // Check that multiple ticks are not allowed without tock
+    ASSERT_NO_THROW(dl2->tick(0.0));
+    for(double t = 0.1; t <= 100; t += 0.1)
+        ASSERT_THROW(dl2->tick(t), std::runtime_error);
 }
+
+TEST_F(DataloggerTest, TryTickTock) {
+    ASSERT_NO_THROW(dl1->tick(1.0));
+    ASSERT_NO_THROW(dl1->tock());
+
+    // Check that multiple tick-tocks are allowed without tock
+    for(double t = 0.0; t <= 100; t += 0.1)
+    {
+        ASSERT_NO_THROW(dl2->tick(t));
+        ASSERT_NO_THROW(dl2->tock());
+    }
+}
+
 
 TEST_F(DataloggerTest, WriteUnregisteredClassAndValue)
 {
@@ -221,6 +243,34 @@ TEST_F(DataloggerTest, RegisterAbove256ClassesAndValues)
         
  }
 
+TEST_F(DataloggerTest, LogMultipleDataNoTick)
+{
+	ASSERT_NO_THROW(
+    	dl1->registerValueName("TIME", "jd", "DOUBLE");
+    	dl1->registerValueName("POS", "x", "DOUBLE");
+    	dl1->registerValueName("POS", "y", "DOUBLE");
+    	dl1->registerValueName("INTS", "(Step*2)+3", "INT");
+	);
+
+	ASSERT_THROW(
+
+    int i = 0;
+    for(double t = 0.0; t < 1000.0; t += 0.01)
+    {
+        dl1->tick(t);
+
+        dl1->writeValue("TIME", "jd", 215000.5+t/60.0/60.0/24.0);
+        dl1->writeValue("POS", "x" , -500.0 + t);
+        dl1->writeValue("POS", "y" , -100.0 + t/50.0);
+        dl1->writeValue("INTS", "(Step*2)+3", i*2+3);
+
+
+        i++;
+    }
+
+	, std::runtime_error);
+}
+
 TEST_F(DataloggerTest, LogMultipleData)
 {
     dl1->registerValueName("TIME", "jd", "DOUBLE");
@@ -238,9 +288,45 @@ TEST_F(DataloggerTest, LogMultipleData)
         dl1->writeValue("POS", "y" , -100.0 + t/50.0);
         dl1->writeValue("INTS", "(Step*2)+3", i*2+3);
 
-
+		dl1->tock();
         i++;
     }
 }
 
+TEST_F(DataloggerTest, TestFrequency)
+{
+    //From setup 
+    // dl2 f = 0.0 (allways log)
+    // dl3 f = 0.1
+    // dl4 f = 0.2
+    dl2->registerValueName("POS", "x", "DOUBLE");
+    dl3->registerValueName("POS", "x", "DOUBLE");
+    dl4->registerValueName("POS", "x", "DOUBLE");
+
+    int i = 0;
+    for(double t = 0.0; t < 1.0; t += 0.1)
+    {
+        dl2->tick(t);
+        dl3->tick(t);
+        dl4->tick(t);
+
+        dl2->writeValue("POS", "x" , -500.0 + t);
+        dl3->writeValue("POS", "x" , -500.0 + t);
+        dl4->writeValue("POS", "x" , -500.0 + t);
+
+        dl2->tock();
+        dl3->tock();
+        dl4->tock();
+        
+        i++;
+    }
+    std::cout << i << std::endl;
+    // After this, 
+    // dl2 should have 10 steps
+    // dl3 should have 10 steps
+    // dl4 should have 5 steps
+    ASSERT_EQ(dl2->getStep(), 10);
+    ASSERT_EQ(dl3->getStep(), 10);
+    ASSERT_EQ(dl4->getStep(), 5);
+}
 
