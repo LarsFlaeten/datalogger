@@ -14,7 +14,7 @@ class Datalogger: public ork::Object
 #endif
 {
 public:
-    Datalogger(const std::string& blackbox);
+    Datalogger(const std::string& blackbox, double freq = 0.0);
     virtual ~Datalogger();
 
     /*
@@ -44,8 +44,12 @@ public:
      * Advances the datalogger to next step. Any subsequent writes will be assosciated with this time step
      * (until next tick() is called. t is written to TIME.t.
      * If the logger has not "started", it will start now (locks the registration)
+     * It also checks elapsed time vs the logging frequency. If et < lf, not logging will start
      */
     void tick(double t);
+
+    /* Ends this time step logging */
+    void tock();
 
     // Writes a value to registered cl.valuename.
     // It is not mandatory to write a value to all cl.valuename for each time step.
@@ -57,6 +61,9 @@ public:
 //protected:
     
     Datalogger();
+public:
+    int     getStep() const;
+	double  getFrequency() const;
 private:    
 	void	writeHeader();
     void    writeInt(int val);
@@ -65,7 +72,7 @@ private:
     void    writeString(const std::string& val);
     
 public:
-    void init(const std::string& blackbox);
+    void init(const std::string& blackbox, double freq = 0.0);
 
     // Locates a class index, registeredClasses is the class index list
 	// returns -1 if class name is not found.
@@ -88,7 +95,10 @@ private:
     std::map<std::string, unsigned int> _classToIndex;
     std::vector<std::map<std::string, unsigned int>> _valueToIndex;
 
+    double          _lastStep;
+    double          _freq;
     bool            _hasStarted;
+    bool            _canLog;
 };
 
 

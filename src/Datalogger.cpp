@@ -3,13 +3,14 @@
 
 #include "Datalogger.h"
 
-Datalogger::Datalogger(const std::string& blackbox)
+Datalogger::Datalogger(const std::string& blackbox, double freq)
 #ifdef ORK_API
     : Object("Datalogger")
 #endif
 {
+    _canLog = false;
     _hasStarted = false;
-    init(blackbox);
+    init(blackbox, freq);
 
 }
 
@@ -23,12 +24,17 @@ Datalogger::Datalogger()
     : Object("Datalogger")
 #endif
 {
+    _canLog = false;
     _hasStarted = false;
 }
             
 
-void Datalogger::init(const std::string& blackbox)
+void Datalogger::init(const std::string& blackbox, double freq)
 {
+
+    if(freq < 0.0)
+        throw std::runtime_error("Error, freq < 0.0 not allowed");
+ 
     // This could be a "restart" with new file:
     if(_hasStarted)
     {
@@ -41,8 +47,11 @@ void Datalogger::init(const std::string& blackbox)
     _valueToIndex.clear();
 
     _hasStarted = false;
+    _canLog = false;
     _step = 0;
-
+        
+   _freq = freq;
+    _lastStep = -1.0E15;
 
     _blackbox.open(blackbox, std::fstream::out | std::fstream::binary);
     // check that he file opened ok:
@@ -108,6 +117,15 @@ void Datalogger::registerValueName(const std::string& cl, const std::string& val
         
 void Datalogger::tick(double t)
 {
+    // Avoid multiple ticks:
+    if(_canLog)
+        throw std::runtime_error("No tick allowed after another tick without tock");
+    // check if we are supposed ot log according to frequency
+    if(t - _lastStep < _freq)
+        return;
+
+    _canLog = true;
+
     ++_step;
 
 	if(!_hasStarted)
@@ -116,8 +134,16 @@ void Datalogger::tick(double t)
         _hasStarted = true;
     }
 
-    // First entry fir this step:
+    // Step number:
+    writeInt(_step);
+
+    // First entry for this step:
     writeValue("TIME", "t", t);
+}
+
+void Datalogger::tock()
+{
+    _canLog = false;
 }
 
 void Datalogger::writeValue(const std::string& cl, const std::string& valuename, int value)
@@ -126,6 +152,10 @@ void Datalogger::writeValue(const std::string& cl, const std::string& valuename,
     {
         throw std::runtime_error("Need to start with a tick");
     }
+
+    if(!_canLog)
+        return;
+
 
     // Make sure it is allready there
     if(_classToIndex.find(cl) == _classToIndex.end())
@@ -151,16 +181,22 @@ void Datalogger::writeValue(const std::string& cl, const std::string& valuename,
         throw std::runtime_error("Tried to write wrong type");
     }
 
+    // Write single value:
+    writeChar((char)cli);
+    writeChar((char)vli);
+    writeInt(value);
 }
     
 void Datalogger::writeValue(const std::string& cl, const std::string& valuename, double value)
 {
-
     if(!_hasStarted)
     {
 		throw std::runtime_error("Need to start with a tick");
 
     }
+
+    if(!_canLog)
+        return;
 
     // Make sure it is allready there
     if(_classToIndex.find(cl) == _classToIndex.end())
@@ -185,6 +221,12 @@ void Datalogger::writeValue(const std::string& cl, const std::string& valuename,
     {
         throw std::runtime_error("Tried to write wrong type");
     }
+
+    // Write single value:
+    writeChar((char)cli);
+    writeChar((char)vli);
+    writeDouble(value);
+
 }
             
 void Datalogger::writeHeader()
@@ -213,6 +255,7 @@ void Datalogger::writeHeader()
 
     // Start writing the file:
     writeInt(1024); // Magic number
+    writeInt(1);    // version
     writeInt(0);    // reserved
     writeInt(0);    // reserved
 
@@ -229,9 +272,9 @@ void Datalogger::writeHeader()
 
     // Value Name indices
     s = _registeredValueNames.size();
-	if(s != _registeredTypes.size())
+	if(s != _registeredTypes.size() || s != _registeredClasses.size())
 		throw std::runtime_error("Names and types size mismatch");
-
+	writeInt(s); // Number of classes (again.. for robustness)
     for(unsigned int i = 0; i < s; ++i)
     {
         writeInt(i); // Class index
@@ -302,19 +345,30 @@ int Datalogger::findValueIndex(unsigned int cli, const std::string& valueName)
 	return -1;
 }
 
+double Datalogger::getFrequency() const
+{
+    return _freq;
+}
+
+int Datalogger::getStep() const
+{
+    return _step;
+}
+
+
 void    Datalogger::writeInt(int val)
 {
-	_blackbox.write((const char*)&val, sizeof(int));
+	_blackbox.write((const char*)&val, sizeof(val));
 }
 
 void    Datalogger::writeChar(char val)
 {
-	_blackbox.write((const char*)&val, sizeof(char));
+	_blackbox.write((const char*)&val, sizeof(val));
 }
 
 void    Datalogger::writeDouble(double val)
 {
-	_blackbox.write((const char*)&val, sizeof(double));
+	_blackbox.write((const char*)&val, sizeof(val));
 }
 void    Datalogger::writeString(const std::string& val)
 {
