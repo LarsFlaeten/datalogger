@@ -47,7 +47,7 @@ int encode_and_add_len(sbuf_t* buf, int length)
     if(sbuf_add_data(buf, bytes, ber_len) != buflen + ber_len)
         throw std::runtime_error("Buffer overflow");
 
-	return ber_len;
+    return ber_len;
 }
 
 
