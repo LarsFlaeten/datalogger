@@ -42,7 +42,7 @@ void sbuf_release(sbuf_t* sbuf);
 // add data to buffer
 // TODO: Should this be static?
 // TODO: Maybe inline?
-// Returns the new length after bytes added, or -1 if the buffer overflowed
+// Returns the new length after bytes added, or 0 if the buffer overflowed
 int sbuf_add_data(sbuf_t* sbuf, const void* data, int length);
 
 
