@@ -1,7 +1,28 @@
 #include <iostream>
 #include <sstream>
 
+
+
 #include "Datalogger.h"
+#include "Klv.h"
+#include "buffer.h"
+
+
+// Definition of klv tags for version 1 of the datalogger interface file
+Datalogger::DlKlvTags Datalogger::tags = {
+    {"DL_HEADER", 34},
+    {"DL_HEADER_VERSION", 35},
+    {"DL_HEADER_CLASS_COUNT", 36},
+    {"DL_HEADER_INDEXEDCLASSNAME", 37},
+    {"DL_HEADER_CLASSNUMVALUES", 38},
+    {"DL_HEADER_CLASSVALUEINDICES", 39},
+    {"DL_HEADER_VALUE_NAME", 40},
+    {"DL_HEADER_VALUE_TYPE", 41},
+    {"DL_STEP_START", 42},
+    {"DL_STEP_END", 43},
+    {"DL_STEP_SINGLE_VALUE", 44}
+};
+
 
 Datalogger::Datalogger(const std::string& blackbox, double freq)
 #ifdef ORK_API
@@ -10,6 +31,7 @@ Datalogger::Datalogger(const std::string& blackbox, double freq)
 {
     _canLog = false;
     _hasStarted = false;
+
     init(blackbox, freq);
 
 }
@@ -52,7 +74,7 @@ void Datalogger::init(const std::string& blackbox, double freq)
         
    _freq = freq;
     _lastStep = -1.0E15;
-
+    _startTime = 0;
     _blackbox.open(blackbox, std::fstream::out | std::fstream::binary);
     // check that he file opened ok:
     if(!_blackbox.is_open())
@@ -114,14 +136,16 @@ void Datalogger::registerValueName(const std::string& cl, const std::string& val
     }
 
 }
+
         
 void Datalogger::tick(double t)
 {
     // Avoid multiple ticks:
     if(_canLog)
         throw std::runtime_error("No tick allowed after another tick without tock");
+    
     // check if we are supposed ot log according to frequency
-    if(t - _lastStep < _freq)
+    if( (t - _lastStep) <  _freq)
         return;
 
     _canLog = true;
@@ -130,19 +154,38 @@ void Datalogger::tick(double t)
 
 	if(!_hasStarted)
     {
+        _startTime = t;
         writeHeader();
         _hasStarted = true;
     }
 
     // Step number:
-    writeInt(_step);
+    sbuf_t  stepbuf;
+    sbuf_create_stack(&stepbuf, 100);
+    klv::Add<uint64_t>(&stepbuf, tags["DL_STEP_START"], _step);
+    _blackbox.write((const char*)stepbuf.data, stepbuf.length);    
+
 
     // First entry for this step:
     writeValue("TIME", "t", t);
+    
+    // The previous time instance that should trigger a new log step:
+    // Will allways be <= t
+    _lastStep = _startTime + (_step-1)*_freq;
 }
 
 void Datalogger::tock()
 {
+    if(!_canLog)
+        return;
+
+    sbuf_t  stepbuf;
+    sbuf_create_stack(&stepbuf, 100);
+    klv::Add<uint64_t>(&stepbuf, tags["DL_STEP_END"], _step);
+    _blackbox.write((const char*)stepbuf.data, stepbuf.length);    
+
+
+
     _canLog = false;
 }
 
@@ -182,9 +225,10 @@ void Datalogger::writeValue(const std::string& cl, const std::string& valuename,
     }
 
     // Write single value:
-    writeChar((char)cli);
-    writeChar((char)vli);
-    writeInt(value);
+    sbuf_t valbuf;
+    sbuf_create_stack(&valbuf, 0x100);
+    klv::AddIndexed<int>(&valbuf, tags["DL_STEP_SINGLE_VALUE"], (uint8_t)cli, (uint8_t)vli, value);
+    _blackbox.write((const char*)valbuf.data, valbuf.length);
 }
     
 void Datalogger::writeValue(const std::string& cl, const std::string& valuename, double value)
@@ -223,10 +267,10 @@ void Datalogger::writeValue(const std::string& cl, const std::string& valuename,
     }
 
     // Write single value:
-    writeChar((char)cli);
-    writeChar((char)vli);
-    writeDouble(value);
-
+    sbuf_t valbuf;
+    sbuf_create_stack(&valbuf, 0x100);
+    klv::AddIndexed<double>(&valbuf, tags["DL_STEP_SINGLE_VALUE"], (uint8_t)cli, (uint8_t)vli, value);
+    _blackbox.write((const char*)valbuf.data, valbuf.length);
 }
             
 void Datalogger::writeHeader()
@@ -252,52 +296,83 @@ void Datalogger::writeHeader()
         _valueToIndex.push_back(vmap);
     }
 
+    int klvb;
 
     // Start writing the file:
-    writeInt(1024); // Magic number
-    writeInt(1);    // version
-    writeInt(0);    // reserved
-    writeInt(0);    // reserved
+    sbuf_t hbuf, childs;
+    // we try with 16kb first
+    sbuf_create_stack(&hbuf, 0x10000);
+    // Add header key (length and payload later)
+    sbuf_add_data(&hbuf, &tags["DL_HEADER"], sizeof(uint8_t));
+        
+
+    // A temporary buffer for header child klvs
+    sbuf_create_stack(&childs, 0x10000);
+
+    // version klv:
+    uint8_t version = 1;
+    klvb = klv::Add<uint8_t>(&childs, tags["DL_HEADER_VERSION"], version); 
+    
 
     // Class index:
     // Size:
     unsigned int s = _registeredClasses.size();
-    writeInt(s);
+    klvb = klv::Add<uint8_t>(&childs, tags["DL_HEADER_CLASS_COUNT"], (uint8_t)s);
+    
+
+    // Indexed strings of class names
     for(unsigned int i = 0; i < s; ++i)
     {
-        writeInt(i); // Class index
-        writeInt(_registeredClasses[i].length()); // Lenght of name
-        writeString(_registeredClasses[i]); // Name     
+        klvb = klv::Add(&childs, tags["DL_HEADER_INDEXEDCLASSNAME"], (uint8_t)i, _registeredClasses[i]);
     }
 
     // Value Name indices
     s = _registeredValueNames.size();
 	if(s != _registeredTypes.size() || s != _registeredClasses.size())
 		throw std::runtime_error("Names and types size mismatch");
-	writeInt(s); // Number of classes (again.. for robustness)
+    
     for(unsigned int i = 0; i < s; ++i)
     {
-        writeInt(i); // Class index
         unsigned int vsize = _registeredValueNames[i].size();
-        writeInt(vsize); // number of values
+        klvb = klv::Add<uint8_t, uint8_t>(&childs, tags["DL_HEADER_CLASSNUMVALUES"], i, vsize);
+
 		if(vsize != _registeredTypes[i].size())
 			throw std::runtime_error("Names and types size mismatch");        
         for(unsigned int j = 0; j < vsize; ++j)
-    	{
-			writeInt(j); // value index
-			writeInt(_registeredValueNames[i][j].length()); // length of name
-			writeString(_registeredValueNames[i][j]); // Name
-			writeInt(_registeredTypes[i][j].length()); // length of name
-            writeString(_registeredTypes[i][j]); // Name
+    	{   
+            // For each class.value, we have 3 klvs:
+            // 1) <class_index><value_index>
+            // 2) <value_name>
+            // 3) <value_type>
+            // They must allways be written in this order. The blackbox reader
+            // depends on this order
+            // TODO: Make this more elegant/order-independent for version >1
+            klvb = klv::Add<uint8_t, uint8_t>(&childs, tags["DL_HEADER_CLASSVALUEINDICES"], i, j);
 
+            klvb = klv::Add(&childs, tags["DL_HEADER_VALUE_NAME"], _registeredValueNames[i][j]);
+            
+            klvb = klv::Add(&childs, tags["DL_HEADER_VALUE_TYPE"], _registeredTypes[i][j]);			
+ 
 		}
     }
 
+    // check if we have enough buffer:
+    if(klvb < 1)
+        throw std::runtime_error("Last klv not written!");
 
+    if(hbuf.max_length < childs.length + 50)
+        throw std::runtime_error("Buffer too small for header, need to change datalogger.cpp");
 
+    // Add the BER-encoded lenght ofthe header buffer:
+    klv::encode_and_add_len(&hbuf, childs.length);
+   
+    // add header payload
+    int header_len = sbuf_add_data(&hbuf, childs.data, childs.length);
+    if(header_len == 0)
+        throw std::runtime_error("Header buffer not written! datalogger.cpp");
 
-
-
+    // Write header to blackbox:
+    _blackbox.write((const char*)hbuf.data, hbuf.length);
     
 }
 

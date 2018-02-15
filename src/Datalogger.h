@@ -7,6 +7,8 @@
 #include <map>
 #include <exception>
 
+
+
 #ifndef ORK_API
 class Datalogger
 #else
@@ -14,6 +16,9 @@ class Datalogger: public ork::Object
 #endif
 {
 public:
+    typedef std::map<std::string, uint8_t> DlKlvTags;
+    static DlKlvTags tags;
+
     Datalogger(const std::string& blackbox, double freq = 0.0);
     virtual ~Datalogger();
 
@@ -87,8 +92,9 @@ public:
 
     void    dumpRegister();
 private:
+ 
     std::fstream    _blackbox;  // The blackbox file we are writing to
-    unsigned int    _step;
+    uint64_t        _step;
     std::vector<std::string> _registeredClasses;
     std::vector<std::vector<std::string>> _registeredValueNames;
     std::vector<std::vector<std::string>> _registeredTypes;
@@ -96,6 +102,7 @@ private:
     std::vector<std::map<std::string, unsigned int>> _valueToIndex;
 
     double          _lastStep;
+    double          _startTime;
     double          _freq;
     bool            _hasStarted;
     bool            _canLog;
