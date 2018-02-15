@@ -200,6 +200,21 @@ TEST_F(DataloggerTest, WriteWrongType)
 
 }
 
+TEST_F(DataloggerTest, RegisterAfterTick)
+{
+    ASSERT_NO_THROW(dl1->registerValueName("MASS", "m", "DOUBLE"));
+    ASSERT_NO_THROW(dl1->tick(1.0));
+
+	ASSERT_THROW(dl1->registerValueName("AP_STATE", "state2", "DOUBLE"), std::runtime_error);
+
+}
+
+TEST_F(DataloggerTest, WriteEmptyClassOrValue)
+{
+    ASSERT_THROW(dl1->registerValueName("", "m", "DOUBLE"), std::runtime_error);
+    ASSERT_THROW(dl1->registerValueName("AP_STATE", "", "INT"), std::runtime_error);
+}
+
 TEST_F(DataloggerTest, RegisterAbove256ClassesAndValues)
 {
 		ostringstream oss;
@@ -278,19 +293,22 @@ TEST_F(DataloggerTest, LogMultipleData)
     dl1->registerValueName("POS", "y", "DOUBLE");
     dl1->registerValueName("INTS", "(Step*2)+3", "INT");
 
-    int i = 0;
-    for(double t = 0.0; t < 1000.0; t += 0.01)
-    {
-        dl1->tick(t);
+	ASSERT_NO_THROW(
+        int i = 0;
+        for(double t = 0.0; t < 1000.0; t += 0.01)
+        {
+            dl1->tick(t);
 
-        dl1->writeValue("TIME", "jd", 215000.5+t/60.0/60.0/24.0);
-        dl1->writeValue("POS", "x" , -500.0 + t);
-        dl1->writeValue("POS", "y" , -100.0 + t/50.0);
-        dl1->writeValue("INTS", "(Step*2)+3", i*2+3);
+            dl1->writeValue("TIME", "jd", 215000.5+t/60.0/60.0/24.0);
+            dl1->writeValue("POS", "x" , -500.0 + t);
+            dl1->writeValue("POS", "y" , -100.0 + t/50.0);
+            dl1->writeValue("INTS", "(Step*2)+3", i*2+3);
 
-		dl1->tock();
-        i++;
-    }
+		    dl1->tock();
+            i++;
+        }
+
+    );
 }
 
 TEST_F(DataloggerTest, TestFrequency)
@@ -303,12 +321,17 @@ TEST_F(DataloggerTest, TestFrequency)
     dl3->registerValueName("POS", "x", "DOUBLE");
     dl4->registerValueName("POS", "x", "DOUBLE");
 
-    int i = 0;
-    for(double t = 0.0; t < 1.0; t += 0.1)
+
+    for(int i = 0; i <= 20; ++i)
     {
+        double t = (double)i/13.0 + 0.0001;
         dl2->tick(t);
         dl3->tick(t);
         dl4->tick(t);
+
+        //std::cout << i+1 << ", t= " << t << ", dl2 step= " << dl2->getStep()<< endl;
+        //std::cout << i+1 << ", t= " << t << ", dl3 step= " << dl3->getStep()<< endl;
+        //std::cout << i+1 << ", t= " << t << ", dl4 step= " << dl4->getStep()<< endl;
 
         dl2->writeValue("POS", "x" , -500.0 + t);
         dl3->writeValue("POS", "x" , -500.0 + t);
@@ -318,15 +341,37 @@ TEST_F(DataloggerTest, TestFrequency)
         dl3->tock();
         dl4->tock();
         
-        i++;
     }
-    std::cout << i << std::endl;
     // After this, 
-    // dl2 should have 10 steps
-    // dl3 should have 10 steps
-    // dl4 should have 5 steps
-    ASSERT_EQ(dl2->getStep(), 10);
-    ASSERT_EQ(dl3->getStep(), 10);
-    ASSERT_EQ(dl4->getStep(), 5);
+    // dl2 should have 21 steps
+    // dl3 should have 16 steps
+    // dl4 should have 8 steps
+    ASSERT_EQ(dl2->getStep(), 21);
+    ASSERT_EQ(dl3->getStep(), 16);
+    ASSERT_EQ(dl4->getStep(), 8);
+}
+
+TEST_F(DataloggerTest, TestFrequency2)
+{
+    //From setup 
+    // dl4 f = 0.2
+    dl4->registerValueName("POS", "x", "DOUBLE");
+
+
+    for(int i = 0; i <= 20; ++i)
+    {
+        double t = (double)i/13.0 + 42.0;
+        dl4->tick(t);
+
+        //std::cout << i+1 << ", t= " << t << ", dl4 step= " << dl4->getStep()<< endl;
+
+        dl4->writeValue("POS", "x" , -500.0 + t);
+
+        dl4->tock();
+        
+    }
+    // After this, 
+    // dl4 should have 8 steps
+    ASSERT_EQ(dl4->getStep(), 8);
 }
 
