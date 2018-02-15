@@ -4,9 +4,35 @@
 
 #include <cxxopts.hpp>
 
+#include <Klv.h>
+
 using namespace std;
 
 std::ifstream file;
+
+// No error checking here...
+#if 0
+void readKlvPacket(KlvPacket* klv, std::ifstream& file)
+{
+    file.read((char*)&(klv->key), 1);
+    file.read((char*)&(klv->length), sizeof(unsigned int));
+    char buf[klv->length];
+    file.read(buf, klv->length);
+    klv->value.clear();
+    klv->value.insert(klv->value.end(), &buf[0], &buf[klv->length]);
+}
+
+void dumpKlvPacket(const KlvPacket& klv)
+{
+    cout << "Key: " << std::dec << klv.key << " (" << std::hex << klv.key << ")" << endl;
+    cout << "len: " << std::dec << klv.length << " bytes" << endl;
+    cout << "val: [" << std::hex;
+    for(auto& c : klv.value)
+        cout << c << ", ";
+    cout << "]" << endl;
+
+}
+
 
 int readInt(){
     int r;
@@ -19,7 +45,7 @@ double readDouble(){
     file.read((char*)&r, sizeof(double));
     return r;
 }
-
+#endif
 void errorExit(const std::string& msg)
 {
     cerr << msg << endl;
@@ -65,6 +91,48 @@ int main(int argc, char** argv) {
         errorExit("Could not open file \"" + filename + "\" for reading");
     }
 
+    // Read the file into memory:
+    file.seekg(0, std::ios::end);
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    //cout << "File size: " << size << " (" << size/1024 << "K)" << endl;
+
+   
+    sbuf_t  buffer;
+    sbuf_create(&buffer, size); 
+    if (!file.read((char*)buffer.data, size))
+    {
+        throw std::runtime_error("Could not read file (out of memory?)");
+    }
+    buffer.length = size;
+    //cout << "Filebuf: size=" << buffer.size() << endl;
+    
+    int ptr = 0;
+    uint8_t key;
+    uint8_t BER[5];
+
+    while(ptr < size)
+    {
+        // Get key
+        key = *(buffer.data + ptr);
+        ptr++;
+        
+        // get length
+        int BER_len = 0;
+        int val_len = klv::decode_BER(buffer.data + ptr, &BER_len);
+
+        cout << "Key: " << (int)key << ", length: " << val_len << endl;
+        
+        // Get the payload
+        sbuf_t value;
+        sbuf_create_stack(&value, val_len);
+        ptr+= BER_len;
+        sbuf_add_data(&value, buffer.data + ptr, val_len);
+        ptr += val_len;
+    }
+
+
+#if 0
     // Start reading the file:
     int m = readInt();    
     int v = readInt();
@@ -146,6 +214,27 @@ int main(int argc, char** argv) {
 	
     map<string, vector<int>> ivalues;
     map<string, vector<double>> dvalues;
+#endif
+#if 0
+    KlvPacket klv;
+
+
+    while(!file.eof())
+    {
+        readKlvPacket(&klv, file);
+        switch(klv.key)
+        {
+            case(7):
+                dumpKlvPacket(klv);
+            default:
+                break;
+
+        }
+    }
+
+#endif
 
     file.close();
+
+    return 0;
 }
