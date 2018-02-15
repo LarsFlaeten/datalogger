@@ -141,7 +141,7 @@ TEST_F(BufferTest, OverFlow)
     sbuf_create(&buf, 144);
 
     int n = sbuf_add_data(&buf, &test_pkt[0], 162);
-    ASSERT_EQ(n, -1);
+    ASSERT_EQ(n, 0);
     ASSERT_EQ(buf.length, 0);
 
 
@@ -158,7 +158,7 @@ TEST_F(BufferTest, OverFlow)
     ASSERT_EQ(buf.length, 140);
 
     n = sbuf_add_data(&buf, &test_pkt[0], 5);
-    ASSERT_EQ(n, -1);
+    ASSERT_EQ(n, 0);
     ASSERT_EQ(buf.length, 140);
 
 
