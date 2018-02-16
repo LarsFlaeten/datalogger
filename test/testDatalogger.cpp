@@ -138,7 +138,9 @@ TEST_F(DataloggerTest, WrongRegistration) {
     ASSERT_THROW(dl1->registerValueName("", "bar", "INT"), std::runtime_error);
     // Empty value
     ASSERT_THROW(dl1->registerValueName("foo", "", "INT"), std::runtime_error);
- 
+    // Different types within same class
+    ASSERT_NO_THROW(dl1->registerValueName("Sattelite_position", "x", "DOUBLE"));
+    ASSERT_THROW(dl1->registerValueName("Sattelite_position", "y", "INT"), std::runtime_error); 
 }
 
 TEST_F(DataloggerTest, NoWriteBeforeFirstTick)
