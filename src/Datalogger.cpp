@@ -10,17 +10,19 @@
 
 // Definition of klv tags for version 1 of the datalogger interface file
 Datalogger::DlKlvTags Datalogger::tags = {
-    {"DL_HEADER", 34},
-    {"DL_HEADER_VERSION", 35},
-    {"DL_HEADER_CLASS_COUNT", 36},
-    {"DL_HEADER_INDEXEDCLASSNAME", 37},
-    {"DL_HEADER_CLASSNUMVALUES", 38},
-    {"DL_HEADER_CLASSVALUEINDICES", 39},
-    {"DL_HEADER_VALUE_NAME", 40},
-    {"DL_HEADER_VALUE_TYPE", 41},
-    {"DL_STEP_START", 42},
-    {"DL_STEP_END", 43},
-    {"DL_STEP_SINGLE_VALUE", 44}
+    
+    // TAG_desc                     key     payload     payload length
+    {"DL_HEADER",                   34}, // [bytes]     variable
+    {"DL_HEADER_VERSION",           35}, // uint8       1
+    {"DL_HEADER_CLASS_COUNT",       36}, // uint8       1 
+    {"DL_HEADER_INDEXEDCLASSNAME",  37}, // uint8+str   1+len(str)
+    {"DL_HEADER_CLASSNUMVALUES",    38}, // uint8 x 2   2
+    {"DL_HEADER_CLASSVALUEINDICES", 39}, // uint8 x 2   2
+    {"DL_HEADER_VALUE_NAME",        40}, // str         len(str)
+    {"DL_HEADER_VALUE_TYPE",        41}, // str         len(str)
+    {"DL_STEP_START",               42}, // uint64      8
+    {"DL_STEP_END",                 43}, // uint64      8
+    {"DL_STEP_SINGLE_VALUE",        44}  // uint8*2 + b 2 + len(b)
 };
 
 
@@ -130,6 +132,13 @@ void Datalogger::registerValueName(const std::string& cl, const std::string& val
         // Check for duplicate:
         if(findValueIndex(cli, valuename) != -1)
             throw std::runtime_error("Valuename allready exists in class");
+
+        // Check if other values have the same type (only one type allowed per class)
+        for(size_t i = 0; i < _registeredTypes[cli].size(); ++i)
+            if(_registeredTypes[cli][i].compare(type)!=0)
+                throw std::runtime_error("Allready registered values in class had different types - not allowed");
+
+
 
         _registeredValueNames[cli].push_back(valuename);
         _registeredTypes[cli].push_back(type);
